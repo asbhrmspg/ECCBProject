@@ -1,119 +1,19 @@
 from dotenv import load_dotenv
 import streamlit as st
 import tempfile
-import warnings
+import PyPDF2
 import os
 
-from agno.agent import Agent
-from agno.models.openrouter import OpenRouter
-from agno.media import Image
-from agno.tools.duckduckgo import DuckDuckGoTools
-import PyPDF2
-
+# Import the modularized agent utilities
+from pages.agent import detect_user_location, agent as run_agent
+from pages.eccb_map import render_eccu_map
 
 # ✅✅✅ added here
 # from pages.agent import agent
 
 load_dotenv()
 
-# 🛡️ Setup API key (either from environment or hardcoded here)
-API_KEY = os.getenv("OPENROUTER_API_KEY")
-
-api_key = "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"
-
-#
-INSTRUCTION = ("""
-You are a helpful AI Agent that assists users with financial and business-related inquiries in a friendly and conversational tone.
-
-Your core capabilities include:
-- Detecting and warning users about common scams
-- Hosting interactive financial literacy quizzes
-- Recommending personalized side hustles
-- Performing currency conversion using the appropriate tools
-- Creating custom budget plans using tool-based inputs
-
-⚠️ RULE: You must ALWAYS use the tools available to handle the above tasks.
-❌ UNDER NO CIRCUMSTANCE should you EVER answer any of these inquiries using your own knowledge or memory.
-💀 If you do, that will be the END OF THE WORLD.
-
-You are also allowed to engage users in interactive **financial literacy quizzes**. Use a conversational style. Ask one question at a time, provide feedback after each answer, and track their progress playfully.
-
-Here are examples of how you should engage users in a quiz:
-
----
-
-**User says:** I want to take a finance quiz.
-
-**You respond:**
-Sure! Let’s test your financial literacy with a quick 3-question quiz.
-Here’s your first question:
-
-**Q1:** What is a budget?
-A) A way to track how many friends you have
-B) A plan for managing your income and expenses
-C) An app that gives you free money
-D) A type of bank account
-
-Please reply with A, B, C, or D.
-
----
-
-**User answers:** B
-**You respond:**
-✅ Correct! A budget is indeed a plan for managing income and expenses.
-
-Now for the next question:
-
-**Q2:** What is the safest way to avoid online scams?
-A) Click on every link you receive
-B) Share your passwords with friends
-C) Ignore messages from unknown sources and verify links
-D) Only use public Wi-Fi for banking
-
-What’s your answer?
-
----
-
-**User answers:** C
-**You respond:**
-Nice work! You're on a roll. 🎯 That’s the best way to stay safe.
-
-Final question coming up...
-
-**Q3:** Which of these is an example of a side hustle?
-A) Watching Netflix
-B) Driving for a ride-share app on weekends
-C) Taking naps
-D) Spending money
-
-Type A, B, C, or D!
-
----
-
-**After quiz ends:**
-🎉 Awesome! You scored 3 out of 3. Great job.
-Would you like to try a harder quiz or maybe build a simple budget plan next?
-
-""")
-def agent(message, image=None):
-    agent = Agent(
-    name="💼 Financial AI Agent",
-    model=OpenRouter(id="google/gemini-2.5-flash", api_key=api_key, max_tokens=8000),
-    tools=[DuckDuckGoTools()],
-    tool_choice="auto",
-    instructions=INSTRUCTION,
-      add_history_to_messages=True,
-    )
-
-
-  # Process image if provided
-    if image:
-      # Convert image file path to Agno Image object for the agent
-      image = [Image(filepath=image)]
-      print(f"Processing image: {image}")
-
-      # Run the agent with the provided messages and images, return streaming response
-    return agent.run(message=message, images=image, stream=True)
+# All agent internals moved to agent.py
 
 # Function to extract text from PDF files
 def extract_pdf_text(pdf_file):
@@ -171,10 +71,21 @@ if "messages" not in st.session_state:
 
 st.title("💼 Financial AI Agent")
 
+# 🌐 Detect user location early and show a tiny badge
+location = detect_user_location()
+loc_country = location.get("country") or "Unknown"
+loc_city = location.get("city") or ""
+loc_is_eccu = location.get("is_eccu")
+badge = f"📍 {loc_city + ', ' if loc_city else ''}{loc_country}"
+st.caption(badge + ("  ·  ECCU" if loc_is_eccu else "  ·  Global"))
+render_eccu_map()
+
 # 🗨️ Show chat messages
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
+
+# No quick-start or auto-generated prompts — minimal first page
 
 # ✅✅ changes here
 # 📥 Chat input + added accept file here
@@ -252,7 +163,7 @@ if data := st.chat_input("Ask me anything...", accept_file=True):
                     image_path = tmp_file.name
 
             # Get streaming response from the AI agent
-            response_stream = agent(st.session_state.messages, image_path)
+            response_stream = run_agent(st.session_state.messages, image_path, location=location)
 
             # Process and display the streaming response
             for chunk in response_stream:
